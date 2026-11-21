@@ -77,22 +77,36 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const $ = id => document.getElementById(id);
-  const map = L.map('map', {scrollWheelZoom:false}).setView([25, 8], 2);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const map = L.map('map', {
+  scrollWheelZoom: false
+}).setView([25, 8], 3);
+
+L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19
+  maxZoom: 19,
+  subdomains: 'abc'
 }).addTo(map);
   const markers = L.layerGroup().addTo(map);
   let selected = null, currentUser = null, records = [], selectedFiles = [];
 
   function setStatus(id, message, error=false){ const el=$(id); el.textContent=message; el.style.color=error?'#b36f7d':'var(--muted)'; }
   function markerIcon(){return L.divIcon({className:'',html:'<span class="star-pin">✦</span>',iconSize:[25,25],iconAnchor:[12,18]});}
-  function setPoint(lat,lng){
-    selected={lat,lng}; $('coords').value=`${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    if(window._selectedMarker) map.removeLayer(window._selectedMarker);
-    window._selectedMarker=L.marker([lat,lng],{icon:markerIcon()}).addTo(map);
+  const map = L.map('map', {
+  scrollWheelZoom: false
+}).setView([25, 8], 3);
+function setPoint(lat,lng){
+  selected={lat,lng};
+  $('coords').value=`${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+  if(window._selectedMarker){
+    map.removeLayer(window._selectedMarker);
+    window._selectedMarker=null;
   }
-  map.on('click',e=>setPoint(e.latlng.lat,e.latlng.lng));
+}
+
+map.on('click',e=>{
+  setPoint(e.latlng.lat,e.latlng.lng);
+});
   async function searchPlace(){
     const q=$('place-search').value.trim(); if(!q)return;
     $('search-btn').disabled=true; $('search-btn').textContent='搜索中…';
