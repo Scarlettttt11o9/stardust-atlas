@@ -91,22 +91,60 @@ L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
 
   function setStatus(id, message, error=false){ const el=$(id); el.textContent=message; el.style.color=error?'#b36f7d':'var(--muted)'; }
   function markerIcon(){return L.divIcon({className:'',html:'<span class="star-pin">✦</span>',iconSize:[25,25],iconAnchor:[12,18]});}
-  const map = L.map('map', {
+  
+const $ = id => document.getElementById(id);
+
+// 地图初始化
+const map = L.map('map', {
   scrollWheelZoom: false
 }).setView([25, 8], 3);
-function setPoint(lat,lng){
-  selected={lat,lng};
-  $('coords').value=`${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
-  if(window._selectedMarker){
+// 当地语言地图 + 随缩放显示不同层级的地名
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  minZoom: 1,
+  maxZoom: 19
+}).addTo(map);
+
+// 只负责显示已经保存的旅行星星
+const markers = L.layerGroup().addTo(map);
+
+let selected = null;
+let currentUser = null;
+let records = [];
+let selectedFiles = [];
+
+function setStatus(id, message, error=false) {
+  const el = $(id);
+  el.textContent = message;
+  el.style.color = error ? '#b36f7d' : 'var(--muted)';
+}
+
+function markerIcon() {
+  return L.divIcon({
+    className: '',
+    html: '<span class="star-pin">✦</span>',
+    iconSize: [25, 25],
+    iconAnchor: [12, 18]
+  });
+}
+
+// 点击地图只选择经纬度，不创建收藏星星
+function setPoint(lat, lng) {
+  selected = {lat, lng};
+  $('coords').value =
+    `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+  if (window._selectedMarker) {
     map.removeLayer(window._selectedMarker);
-    window._selectedMarker=null;
+    window._selectedMarker = null;
   }
 }
 
-map.on('click',e=>{
-  setPoint(e.latlng.lat,e.latlng.lng);
+map.on('click', e => {
+  setPoint(e.latlng.lat, e.latlng.lng);
 });
+
   async function searchPlace(){
     const q=$('place-search').value.trim(); if(!q)return;
     $('search-btn').disabled=true; $('search-btn').textContent='搜索中…';
