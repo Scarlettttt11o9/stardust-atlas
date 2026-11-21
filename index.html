@@ -22,7 +22,13 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
 <div class="shell">
   <header class="top">
     <div class="brand"><div class="brandmark">✦</div><div><h1>STARDUST ATLAS</h1><p>PERSONAL TRAVEL ARCHIVE</p></div></div>
-    <div class="top-actions"><span id="user-label" class="hint"></span><button class="btn soft" id="auth-open">登录 / 注册</button><button class="btn hidden" id="logout">退出</button></div>
+    <div class="top-actions">
+  <span id="user-label" class="hint"></span>
+  <input id="nickname-input" class="hidden" maxlength="20" placeholder="设置社区昵称" style="width:120px">
+  <button class="btn hidden" id="nickname-save">保存昵称</button>
+  <button class="btn soft" id="auth-open">登录 / 注册</button>
+  <button class="btn hidden" id="logout">退出</button>
+</div>
   </header>
   <section class="hero">
     <div><div class="eyebrow">A little map of everywhere</div><h2>把走过的世界，收藏起来。</h2><p>每一个地点，都是一颗属于你的星星。</p></div>
@@ -44,7 +50,14 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
           <div class="field"><label>地图坐标</label><input id="coords" placeholder="点击地图选择" readonly></div>
         </div>
         <div class="field"><label>旅行日记</label><textarea id="diary" placeholder="写下那一天发生的事……"></textarea></div>
-        <div class="field"><label>照片（可多选）</label><div class="filebox">从手机相册选择照片<input id="photos-input" type="file" accept="image/*" multiple><div id="preview" class="preview"></div><div class="hint">照片会保存在你的私人云端空间，不会公开展示。建议单次选择不超过 10 张。</div></div></div>
+                <div class="field" style="padding:12px;background:#f7f2f5;border-radius:12px">
+          <label style="display:flex;align-items:center;gap:9px;color:var(--ink);font-size:13px">
+            <input id="publish-new" type="checkbox" style="width:17px;height:17px;margin:0">
+            将这篇旅行日志公开到星屑社区
+          </label>
+          <div class="hint">勾选后，所有访客无需登录即可浏览地点、日期、日记和公开照片；不勾选则只有你自己能看见。</div>
+        </div>
+        <div class="field"><label>照片（可多选）</label><div class="filebox">从手机相册选择照片<input id="photos-input" type="file" accept="image/*" multiple><div id="preview" class="preview"></div><div class="hint">照片默认保存在私人云端空间；勾选公开日志后，照片也会复制到社区公开空间。建议单次选择不超过 10 张。</div></div></div>
         <button class="btn primary" type="submit" style="width:100%;padding:12px">保存这段旅行</button>
         <div id="save-status" class="status"></div>
       </form>
@@ -54,7 +67,30 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
       <div id="records" class="records"><div class="empty">登录后，这里会出现你的旅行记录。</div></div>
     </section>
   </div>
-  <div class="footer">STARDUST ATLAS · YOUR JOURNEY, YOUR STARS</div>
+   <section class="panel section" id="community-section" style="margin-top:20px">
+
+    <div class="records-head">
+
+      <div>
+
+        <h3>✦ 星屑社区</h3>
+
+        <p class="sub" style="margin:4px 0 0">看看世界各地旅人分享的故事</p>
+
+      </div>
+
+      <button class="btn" id="community-refresh">刷新社区</button>
+
+    </div>
+
+    <div id="community-records" class="records">
+
+      <div class="empty">正在加载公开旅行日志……</div>
+
+    </div>
+
+  </section>
+   <div class="footer">STARDUST ATLAS · YOUR JOURNEY, YOUR STARS</div>
 </div>
 
 <div class="auth" id="auth-modal">
@@ -78,7 +114,8 @@ import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-
   // Supabase 项目连接信息
   const SUPABASE_URL = "https://cavblmzcnibewntykvlc.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_ybk8wnCdlP3ZKcx4JIQE8A_eZSpRUvY";
-  const BUCKET = "travel-photos";
+    const BUCKET = "travel-photos";
+  const PUBLIC_BUCKET = "community-photos";
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 
@@ -251,6 +288,52 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
     const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);
     if(error)throw error;return data.signedUrl;
   }
+    async function copyPhotosToPublic(photos){
+    const copied = [];
+    try {
+      for(const photo of (photos || [])){
+        const {data:blob,error:downloadError} =
+          await db.storage.from(BUCKET).download(photo.path);
+        if(downloadError)throw downloadError;
+
+        const ext = (photo.name?.split('.').pop() || 'jpg')
+          .toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+        const path = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+
+        const {error:uploadError} =
+          await db.storage.from(PUBLIC_BUCKET).upload(path,blob,{
+            contentType: photo.type || blob.type || 'image/jpeg',
+            upsert:false
+          });
+        if(uploadError)throw uploadError;
+
+        copied.push({
+          path,
+          name:photo.name || 'travel-photo',
+          type:photo.type || blob.type || 'image/jpeg'
+        });
+      }
+      return copied;
+    }catch(error){
+      if(copied.length){
+        await db.storage.from(PUBLIC_BUCKET).remove(copied.map(p=>p.path));
+      }
+      throw error;
+    }
+  }
+
+  async function removePublicPhotos(photos){
+    if(!Array.isArray(photos) || !photos.length)return;
+    const paths = photos.map(p=>p.path).filter(Boolean);
+    if(paths.length){
+      const {error} = await db.storage.from(PUBLIC_BUCKET).remove(paths);
+      if(error)throw error;
+    }
+  }
+
+  function publicPhotoUrl(path){
+    return db.storage.from(PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
+  }
   async function loadRecords(){
     if(!currentUser){$('records').innerHTML='<div class="empty">登录后，这里会出现你的旅行记录。</div>';records=[];updateStats();clearRecordMarkers();return;}
     setStatus('save-status','正在同步旅行记录…');
@@ -270,7 +353,12 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
       const strong=document.createElement('strong');strong.textContent=r.place_name||'未命名地点';info.appendChild(strong);
       const meta=document.createElement('div');meta.className='record-meta';meta.textContent=[r.country,r.visit_date].filter(Boolean).join(' · ');info.appendChild(meta);
       const del=document.createElement('button');del.className='btn';del.textContent='删除';del.addEventListener('click',()=>deleteRecord(r));
-      title.append(info,del);main.appendChild(title);
+      const visibility=document.createElement('button');
+visibility.className='btn';
+visibility.textContent=r.is_public?'取消公开':'公开到社区';
+visibility.addEventListener('click',()=>setRecordPublic(r,!r.is_public));
+      title.append(info,visibility,del);
+main.appendChild(title);
       if(r.diary){const diary=document.createElement('div');diary.className='record-diary';diary.textContent=r.diary;main.appendChild(diary);}
       card.appendChild(main);
       if(Array.isArray(r.photos)&&r.photos.length){
@@ -283,6 +371,155 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
     }
     updateStats();setStatus('save-status','旅行记录已同步。');
   }
+    async function loadCommunity(){
+    const container = $('community-records');
+    container.innerHTML = '<div class="empty">正在加载公开旅行日志……</div>';
+
+    try{
+      const {data:posts,error} = await db
+        .from('travel_records')
+        .select('id,user_id,created_at,place_name,country,visit_date,diary,latitude,longitude,is_public,public_photos')
+        .eq('is_public',true)
+        .order('created_at',{ascending:false})
+        .limit(60);
+
+      if(error)throw error;
+
+      if(!posts || !posts.length){
+        container.innerHTML = '<div class="empty">这里还没有公开旅行日志，等第一位旅人来分享吧 ✦</div>';
+        return;
+      }
+
+      const userIds = [...new Set(posts.map(p=>p.user_id).filter(Boolean))];
+      let profiles = [];
+
+      if(userIds.length){
+        const {data,error:profileError} = await db
+          .from('user_profiles')
+          .select('user_id,nickname')
+          .in('user_id',userIds);
+
+        if(profileError)throw profileError;
+        profiles = profileError ? [] : (data || []);
+      }
+
+      const nicknameMap = new Map(
+        profiles.map(p=>[p.user_id,p.nickname])
+      );
+
+      container.innerHTML = '';
+
+      for(const post of posts){
+        const card = document.createElement('article');
+        card.className = 'record';
+
+        const main = document.createElement('div');
+        main.className = 'record-main';
+
+        const author = document.createElement('div');
+        author.className = 'record-meta';
+        author.textContent = '✦ ' + (nicknameMap.get(post.user_id) || '星屑旅人');
+
+        const title = document.createElement('strong');
+        title.textContent = post.place_name || '未命名地点';
+
+        const meta = document.createElement('div');
+        meta.className = 'record-meta';
+        meta.textContent = [post.country,post.visit_date].filter(Boolean).join(' · ');
+
+        main.append(author,title,meta);
+
+        if(post.diary){
+          const diary = document.createElement('div');
+          diary.className = 'record-diary';
+          diary.textContent = post.diary;
+          main.appendChild(diary);
+        }
+
+        card.appendChild(main);
+
+        const photos = Array.isArray(post.public_photos)
+          ? post.public_photos : [];
+
+        if(photos.length){
+          const strip = document.createElement('div');
+          strip.className = 'photos';
+
+          for(const photo of photos){
+            if(!photo.path)continue;
+
+            const img = document.createElement('img');
+            img.src = publicPhotoUrl(photo.path);
+            img.alt = '公开旅行照片';
+            img.loading = 'lazy';
+            strip.appendChild(img);
+          }
+
+          if(strip.children.length)card.appendChild(strip);
+        }
+
+        container.appendChild(card);
+      }
+    }catch(error){
+      container.innerHTML = '<div class="empty">社区加载失败：' +
+        escapeHtml(error.message || '请稍后重试') + '</div>';
+    }
+  }
+
+  $('community-refresh').addEventListener('click',loadCommunity);
+    async function setRecordPublic(r,makePublic){
+    if(!currentUser)return;
+
+    try{
+      if(makePublic){
+        if(!confirm(`确定将「${r.place_name}」公开到星屑社区吗？`))return;
+
+        const publicPhotos = await copyPhotosToPublic(r.photos || []);
+
+        const {error} = await db
+          .from('travel_records')
+          .update({
+            is_public:true,
+            public_photos:publicPhotos
+          })
+          .eq('id',r.id)
+          .eq('user_id',currentUser.id);
+
+        if(error){
+          await removePublicPhotos(publicPhotos);
+          throw error;
+        }
+
+        alert('已成功公开到星屑社区！');
+      }else{
+        if(!confirm(`确定取消公开「${r.place_name}」吗？`))return;
+
+        const oldPhotos = r.public_photos || [];
+
+        const {error} = await db
+          .from('travel_records')
+          .update({
+            is_public:false,
+            public_photos:[]
+          })
+          .eq('id',r.id)
+          .eq('user_id',currentUser.id);
+
+        if(error)throw error;
+
+        await removePublicPhotos(oldPhotos);
+
+        alert('已取消公开，这篇日志不再显示在社区。');
+      }
+
+      await loadRecords();
+      await loadCommunity();
+
+    }catch(error){
+      alert('操作失败：' + (error.message || '请稍后重试'));
+    }
+  }
+  loadCommunity();
   function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
   async function saveRecord(e){
@@ -301,20 +538,48 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
         if(uploadError)throw uploadError;
         photos.push({path,name:file.name,type:file.type});
       }
+            const isPublic = $('publish-new').checked;
+      let publicPhotos = [];
+
+      if(isPublic){
+        try{
+          publicPhotos = await copyPhotosToPublic(photos);
+        }catch(copyError){
+          if(photos.length){
+            await db.storage.from(BUCKET).remove(photos.map(p=>p.path));
+          }
+          throw copyError;
+        }
+      }
+
       const payload={
-        user_id:currentUser.id,place_name:name,country:$('country').value.trim()||null,
-        visit_date:$('visit-date').value||null,diary:$('diary').value.trim()||null,
-        latitude:selected?selected.lat:null,longitude:selected?selected.lng:null,photos
+        user_id:currentUser.id,
+        place_name:name,
+        country:$('country').value.trim()||null,
+        visit_date:$('visit-date').value||null,
+        diary:$('diary').value.trim()||null,
+        latitude:selected?selected.lat:null,
+        longitude:selected?selected.lng:null,
+        photos,
+        is_public:isPublic,
+        public_photos:publicPhotos
       };
+
       const {error}=await db.from('travel_records').insert(payload);
       if(error){
-        // 数据库写入失败时，尽力清理刚上传的文件
-        if(photos.length)await db.storage.from(BUCKET).remove(photos.map(p=>p.path));
+        if(publicPhotos.length){
+          await removePublicPhotos(publicPhotos);
+        }
+        if(photos.length){
+          await db.storage.from(BUCKET).remove(photos.map(p=>p.path));
+        }
         throw error;
       }
       $('record-form').reset();selectedFiles=[];$('preview').innerHTML='';$('coords').value='';
       selected=null;if(window._selectedMarker){window._selectedMarker.remove();window._selectedMarker=null;}
-      await loadRecords();setStatus('save-status','保存成功！');
+      await loadRecords();
+await loadCommunity();
+setStatus('save-status','保存成功！');
     }catch(err){setStatus('save-status','保存失败：'+(err.message||'请检查网络和 Supabase 权限设置。'),true);}
     finally{button.disabled=false;button.textContent='保存这段旅行';}
   }
@@ -326,10 +591,68 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
       const {error}=await db.from('travel_records').delete().eq('id',r.id).eq('user_id',currentUser.id);
       if(error)throw error;
       if(Array.isArray(r.photos)&&r.photos.length)await db.storage.from(BUCKET).remove(r.photos.map(p=>p.path));
+      if(Array.isArray(r.public_photos)&&r.public_photos.length){
+        await removePublicPhotos(r.public_photos);
+        }
       await loadRecords();
     }catch(e){alert('删除失败：'+e.message);}
   }
+  async function loadNickname(){
+    if(!currentUser)return;
 
+    const {data,error}=await db
+      .from('user_profiles')
+      .select('nickname')
+      .eq('user_id',currentUser.id)
+      .maybeSingle();
+
+    if(error){
+      console.error('读取昵称失败：',error);
+      return;
+    }
+
+    $('nickname-input').value=data?.nickname || '';
+    $('nickname-input').classList.remove('hidden');
+    $('nickname-save').classList.remove('hidden');
+  }
+
+  $('nickname-save').addEventListener('click',async()=>{
+    if(!currentUser)return;
+
+    const nickname=$('nickname-input').value.trim();
+
+    if(!nickname){
+      alert('请先填写昵称。');
+      return;
+    }
+
+    if(nickname.length>20){
+      alert('昵称最多只能有20个字符。');
+      return;
+    }
+
+    const button=$('nickname-save');
+    button.disabled=true;
+
+    try{
+      const {error}=await db
+        .from('user_profiles')
+        .upsert({
+          user_id:currentUser.id,
+          nickname:nickname
+        },{onConflict:'user_id'});
+
+      if(error)throw error;
+
+      alert('昵称保存成功！');
+      await loadCommunity();
+
+    }catch(error){
+      alert('昵称保存失败：'+error.message);
+    }finally{
+      button.disabled=false;
+    }
+  });
   function openAuth(){$('auth-modal').classList.add('show');}
   $('auth-open').onclick=openAuth;$('auth-close').onclick=()=>$('auth-modal').classList.remove('show');
   $('login-btn').onclick=async()=>{
@@ -347,19 +670,34 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
   };
   $('logout').onclick=async()=>{await db.auth.signOut();};
   $('refresh').onclick=loadRecords;
-  db.auth.onAuthStateChange((_event,session)=>{
+    db.auth.onAuthStateChange((_event,session)=>{
     currentUser=session?.user||null;
     $('user-label').textContent=currentUser?currentUser.email:'';
     $('auth-open').classList.toggle('hidden',!!currentUser);
     $('logout').classList.toggle('hidden',!currentUser);
-    loadRecords();
+    if(currentUser){
+      loadRecords();
+      loadNickname();
+    }else{
+      $('nickname-input').classList.add('hidden');
+      $('nickname-save').classList.add('hidden');
+      $('nickname-input').value='';
+      loadRecords();
+    }
   });
-  db.auth.getSession().then(({data})=>{
+    db.auth.getSession().then(({data})=>{
     currentUser=data.session?.user||null;
     $('user-label').textContent=currentUser?currentUser.email:'';
     $('auth-open').classList.toggle('hidden',!!currentUser);
     $('logout').classList.toggle('hidden',!currentUser);
-    loadRecords();
+    if(currentUser){
+      loadRecords();
+      loadNickname();
+    }else{
+      $('nickname-input').classList.add('hidden');
+      $('nickname-save').classList.add('hidden');
+      loadRecords();
+    }
   });
 })();
 </script>
