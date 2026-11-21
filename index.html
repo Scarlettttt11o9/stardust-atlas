@@ -1,1 +1,327 @@
 
+
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Stardust Atlas · 星屑旅行地图</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+<style>
+
+*{box-sizing:border-box}
+
+body{margin:0;background:#f5f1f6;color:#51485b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+
+header{text-align:center;padding:28px 15px 18px;background:linear-gradient(135deg,#f4e5ef,#e9e5f2)}
+
+h1{font-family:Georgia,serif;font-size:27px;margin:8px 0;color:#78627e}
+
+.subtitle{font-size:12px;letter-spacing:3px;color:#9b829e}
+
+.stars{color:#c49abd;font-size:20px;letter-spacing:9px}
+
+main{max-width:1000px;margin:auto;padding:16px}
+
+.intro{text-align:center;font-size:14px;line-height:1.8;margin:8px 0 18px}
+
+#map{height:55vh;min-height:340px;border-radius:18px;border:3px solid white;box-shadow:0 5px 20px #b9a8bd55;z-index:1}
+
+.hint{text-align:center;font-size:12px;color:#96869c;margin:12px}
+
+.panel{background:white;border-radius:18px;padding:18px;margin-top:18px;box-shadow:0 4px 18px #b9a8bd22}
+
+h2{font-size:17px;color:#806b88;margin:0 0 14px}
+
+input,textarea{width:100%;padding:12px;border:1px solid #e4dbe8;border-radius:10px;margin:7px 0 12px;font:inherit;color:#51485b;background:#fdfbfe}
+
+textarea{min-height:85px;resize:vertical}
+
+label{font-size:13px;color:#88768f}
+
+button{border:0;border-radius:22px;background:#b78eb5;color:white;padding:12px 20px;font-size:14px}
+
+button:disabled{opacity:.5}
+
+#status{font-size:12px;color:#9a829c;margin-top:8px}
+
+#entries{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+
+.entry{border:1px solid #eee5ef;border-radius:13px;padding:12px;overflow:hidden}
+
+.entry img{width:100%;height:145px;object-fit:cover;border-radius:9px}
+
+.entry h3{font-size:15px;margin:9px 0 4px}
+
+.entry p{font-size:13px;line-height:1.6;white-space:pre-wrap}
+
+.entry small{color:#a08da4}
+
+footer{text-align:center;padding:25px;color:#aa98ad;font-size:12px}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<div class="stars">✧ ⋆ ✦ ⋆ ✧</div>
+
+<h1>Stardust Atlas</h1>
+
+<div class="subtitle">星 屑 旅 行 地 图</div>
+
+</header>
+
+<main>
+
+<div class="intro">每一颗星星，都是曾经抵达过的地方。<br>把世界装进自己的地图里。 ✦</div>
+
+<div id="map"></div>
+
+<div class="hint">✧ 点击地图上的任意位置，添加一段旅行记忆</div>
+
+<section class="panel" id="formPanel">
+
+<h2>✦ 收藏一颗新的星星</h2>
+
+<label>地点名称</label>
+
+<input id="place" placeholder="例如：巴黎 · 法国">
+
+<label>旅行日期</label>
+
+<input id="date" type="date">
+
+<label>写下你的故事</label>
+
+<textarea id="note" placeholder="在这里记录风景、心情和遇见的人……"></textarea>
+
+<label>添加一张照片（建议先选小于 1.5MB 的图片）</label>
+
+<input id="photo" type="file" accept="image/*">
+
+<div id="coordinates">还没有选择地图位置</div>
+
+<br>
+
+<button id="save" disabled>✧ 保存这颗星星</button>
+
+<div id="status">先点击地图选择一个地点哦。</div>
+
+</section>
+
+<section class="panel">
+
+<h2>✧ 我的旅行记忆</h2>
+
+<div id="entries">还没有收藏的地方。你的第一颗星星正在等待你！</div>
+
+</section>
+
+</main>
+
+<footer>Made of memories & stardust ✧</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+const map = L.map('map').setView([25,10],2);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+
+  attribution:'&copy; OpenStreetMap contributors',
+
+  maxZoom:19
+
+}).addTo(map);
+
+let selected = null;
+
+let records = [];
+
+try { records = JSON.parse(localStorage.getItem('stardust-records') || '[]'); }
+
+catch(e) { records = []; }
+
+const star = L.divIcon({
+
+  className:'',
+
+  html:'<div style="font-size:27px;color:#bd8db9;text-shadow:0 1px 5px white">✦</div>',
+
+  iconSize:[28,28],
+
+  iconAnchor:[14,14]
+
+});
+
+function drawRecords(){
+
+  document.getElementById('entries').innerHTML = '';
+
+  records.forEach((r,i)=>{
+
+    const marker=L.marker([r.lat,r.lng],{icon:star}).addTo(map);
+
+    marker.bindPopup('<b>'+escapeText(r.place)+'</b><br>'+escapeText(r.date||'')+'<br>'+escapeText(r.note||''));
+
+    const card=document.createElement('div');
+
+    card.className='entry';
+
+    if(r.photo){
+
+      const img=document.createElement('img');
+
+      img.src=r.photo;
+
+      card.appendChild(img);
+
+    }
+
+    const title=document.createElement('h3');
+
+    title.textContent='✦ '+r.place;
+
+    card.appendChild(title);
+
+    const date=document.createElement('small');
+
+    date.textContent=r.date||'未填写日期';
+
+    card.appendChild(date);
+
+    const note=document.createElement('p');
+
+    note.textContent=r.note||'还没有写下故事。';
+
+    card.appendChild(note);
+
+    const locate=document.createElement('button');
+
+    locate.textContent='在地图上查看';
+
+    locate.onclick=()=>{map.setView([r.lat,r.lng],7);marker.openPopup();};
+
+    card.appendChild(locate);
+
+    document.getElementById('entries').appendChild(card);
+
+  });
+
+}
+
+function escapeText(s){
+
+  return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+}
+
+map.on('click',e=>{
+
+  selected={lat:e.latlng.lat,lng:e.latlng.lng};
+
+  document.getElementById('coordinates').textContent=
+
+    '已选择位置：'+selected.lat.toFixed(4)+', '+selected.lng.toFixed(4);
+
+  document.getElementById('save').disabled=false;
+
+  document.getElementById('status').textContent='位置选好啦！填写地点信息后就可以保存。';
+
+});
+
+document.getElementById('save').onclick=()=>{
+
+  if(!selected)return;
+
+  const file=document.getElementById('photo').files[0];
+
+  if(file && file.size>1.5*1024*1024){
+
+    document.getElementById('status').textContent='照片有点大，请先压缩到 1.5MB 以下再添加。';
+
+    return;
+
+  }
+
+  const saveRecord=photo=>{
+
+    const r={
+
+      place:document.getElementById('place').value.trim()||'未命名的地方',
+
+      date:document.getElementById('date').value,
+
+      note:document.getElementById('note').value,
+
+      photo,lat:selected.lat,lng:selected.lng
+
+    };
+
+    records.push(r);
+
+    try{
+
+      localStorage.setItem('stardust-records',JSON.stringify(records));
+
+    }catch(e){
+
+      records.pop();
+
+      document.getElementById('status').textContent='储存空间不足，请减少照片后再试。';
+
+      return;
+
+    }
+
+    drawRecords();
+
+    document.getElementById('place').value='';
+
+    document.getElementById('date').value='';
+
+    document.getElementById('note').value='';
+
+    document.getElementById('photo').value='';
+
+    document.getElementById('status').textContent='✧ 保存成功！你的旅行星星已经点亮。';
+
+    document.getElementById('save').disabled=true;
+
+    selected=null;
+
+    document.getElementById('coordinates').textContent='还没有选择地图位置';
+
+  };
+
+  if(file){
+
+    const reader=new FileReader();
+
+    reader.onload=()=>saveRecord(reader.result);
+
+    reader.readAsDataURL(file);
+
+  }else saveRecord('');
+
+};
+
+drawRecords();
+
+</script>
+
+</body>
+
+</html>
