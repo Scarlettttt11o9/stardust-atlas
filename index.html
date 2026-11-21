@@ -122,23 +122,56 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
     el.style.color = error ? '#b36f7d' : 'var(--muted)';
   }
 
-  function markerIcon() {
-    return L.divIcon({
-      className: '',
-      html: '<span class="star-pin">✦</span>',
-      iconSize: [25, 25],
-      iconAnchor: [12, 18]
+  
+  function createRecordMarker(r){
+    const el = document.createElement('div');
+    el.className = 'star-pin';
+    el.textContent = '✦';
+
+    const popup = new maplibregl.Popup({offset: 18})
+      .setHTML(
+        '<b>' + escapeHtml(r.place_name || '未命名地点') +
+        '</b><br>' + escapeHtml(r.country || '')
+      );
+
+    const marker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom'
+    })
+      .setLngLat([r.longitude, r.latitude])
+      .setPopup(popup)
+      .addTo(map);
+
+    marker.getElement().addEventListener('click', () => {
+      map.flyTo({
+        center: [r.longitude, r.latitude],
+        zoom: 8
+      });
     });
+
+    markers.push(marker);
   }
+
 
   function setPoint(lat, lng) {
     selected = {lat, lng};
     $('coords').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
     if (window._selectedMarker) {
-      map.removeLayer(window._selectedMarker);
+      window._selectedMarker.remove();
       window._selectedMarker = null;
     }
+
+    const el = document.createElement('div');
+    el.className = 'star-pin';
+    el.textContent = '✦';
+
+    window._selectedMarker = new maplibregl.Marker({
+      element: el,
+      anchor: 'bottom'
+    })
+      .setLngLat([lng, lat])
+      .addTo(map);
   }
 
   map.on('click', e => {
