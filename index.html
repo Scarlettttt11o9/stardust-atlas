@@ -752,20 +752,6 @@ setStatus('save-status','保存成功！');
       loadRecords();
     }
   });
-    db.auth.getSession().then(({data})=>{
-    currentUser=data.session?.user||null;
-    $('user-label').textContent=currentUser?currentUser.email:'';
-    $('auth-open').classList.toggle('hidden',!!currentUser);
-    $('logout').classList.toggle('hidden',!currentUser);
-    if(currentUser){
-      loadRecords();
-      loadNickname();
-    }else{
-      $('nickname-input').classList.add('hidden');
-      $('nickname-save').classList.add('hidden');
-      loadRecords();
-    }
-  });
 })();
 </script>
 
