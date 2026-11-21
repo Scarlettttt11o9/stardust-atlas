@@ -144,10 +144,8 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
   }
 
   map.on('click', e => {
-    setPoint(e.latlng.lat, e.latlng.lng);
-  });
-
-
+  setPoint(e.lngLat.lat, e.lngLat.lng);
+});
   async function searchPlace(){
     const q=$('place-search').value.trim(); if(!q)return;
     $('search-btn').disabled=true; $('search-btn').textContent='搜索中…';
@@ -156,8 +154,7 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
       const data=await r.json();
       if(!data.length){alert('没有找到这个地点，请换一种关键词试试。');return;}
       const p=data[0],lat=Number(p.lat),lng=Number(p.lon);
-      map.setView([lat,lng],Math.max(10,Number(p.zoom)||12)); setPoint(lat,lng);
-      if(!$('place-name').value)$('place-name').value=p.name||q;
+      map.flyTo({center:[lng,lat],zoom:Math.max(10,Number(p.zoom)||12)}); setPoint(lat,lng);      if(!$('place-name').value)$('place-name').value=p.name||q;
       if(!$('country').value && p.display_name)$('country').value=p.display_name.split(',').slice(-1)[0].trim();
     }catch(e){alert('地点搜索暂时失败，请稍后再试。');}
     finally{$('search-btn').disabled=false;$('search-btn').textContent='搜索';}
@@ -183,7 +180,7 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
           const toDecimal=a=>a[0]+a[1]/60+a[2]/3600;
           let la=toDecimal(lat),lo=toDecimal(lng);
           if(latRef==='S')la=-la;if(lngRef==='W')lo=-lo;
-          setPoint(la,lo);map.setView([la,lo],12);
+          setPoint(la,lo);map.flyTo({center:[lo,la],zoom:12});
           setStatus('save-status','已从照片读取到 GPS 位置，请核对地图标记。');
         }
       });
@@ -199,18 +196,16 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
     if(error)throw error;return data.signedUrl;
   }
   async function loadRecords(){
-    if(!currentUser){$('records').innerHTML='<div class="empty">登录后，这里会出现你的旅行记录。</div>';records=[];updateStats();markers.clearLayers();return;}
+    if(!currentUser){$('records').innerHTML='<div class="empty">登录后，这里会出现你的旅行记录。</div>';records=[];updateStats();clearRecordMarkers();return;}
     setStatus('save-status','正在同步旅行记录…');
     const {data,error}=await db.from('travel_records').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(error){setStatus('save-status','读取失败：'+error.message,true);return;}
-    records=data||[];markers.clearLayers();
+    records=data||[];clearRecordMarkers();
     $('records').innerHTML='';
     if(!records.length)$('records').innerHTML='<div class="empty">还没有旅行记录。保存第一个地点，让地图亮起一颗星星吧。</div>';
     for(const r of records){
       if(r.latitude!=null&&r.longitude!=null){
-        const m=L.marker([r.latitude,r.longitude],{icon:markerIcon()}).addTo(markers);
-        m.bindPopup('<b>'+escapeHtml(r.place_name||'未命名地点')+'</b><br>'+escapeHtml(r.country||''));
-        m.on('click',()=>map.setView([r.latitude,r.longitude],8));
+        createRecordMarker(r);
       }
       const card=document.createElement('article');card.className='record';
       const main=document.createElement('div');main.className='record-main';
@@ -262,7 +257,7 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
         throw error;
       }
       $('record-form').reset();selectedFiles=[];$('preview').innerHTML='';$('coords').value='';
-      selected=null;if(window._selectedMarker){map.removeLayer(window._selectedMarker);window._selectedMarker=null;}
+      selected=null;if(window._selectedMarker){window._selectedMarker.remove();window._selectedMarker=null;}
       await loadRecords();setStatus('save-status','保存成功！');
     }catch(err){setStatus('save-status','保存失败：'+(err.message||'请检查网络和 Supabase 权限设置。'),true);}
     finally{button.disabled=false;button.textContent='保存这段旅行';}
