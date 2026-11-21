@@ -78,9 +78,10 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
 
   const $ = id => document.getElementById(id);
   const map = L.map('map', {scrollWheelZoom:false}).setView([25, 8], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd', maxZoom:19
-  }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
   const markers = L.layerGroup().addTo(map);
   let selected = null, currentUser = null, records = [], selectedFiles = [];
 
