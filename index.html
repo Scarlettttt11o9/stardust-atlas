@@ -92,7 +92,32 @@ const map = new maplibregl.Map({
   scrollZoom: false,
   attributionControl: true
 });
+function applyLocalNameLabels(){
+  const style = map.getStyle();
 
+  for(const layer of style.layers || []){
+    if(layer.type !== 'symbol') continue;
+
+    const textField = layer.layout?.['text-field'];
+    if(!textField) continue;
+
+    const fieldText = JSON.stringify(textField);
+
+    if(!/name(_en|:latin|:nonlatin)?/.test(fieldText)) {
+      continue;
+    }
+
+    map.setLayoutProperty(layer.id, 'text-field', [
+      'coalesce',
+      ['get', 'name'],
+      ['get', 'name:nonlatin'],
+      ['get', 'name:latin'],
+      ['get', 'name_en']
+    ]);
+  }
+}
+
+map.on('style.load', applyLocalNameLabels);
 map.addControl(
   new maplibregl.NavigationControl({showCompass: false}),
   'top-right'
