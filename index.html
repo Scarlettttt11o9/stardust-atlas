@@ -27,6 +27,19 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
   <input id="nickname-input" class="hidden" maxlength="20" placeholder="设置社区昵称" style="width:120px">
   <button class="btn hidden" id="nickname-save">保存昵称</button>
   <button class="btn soft" id="auth-open">登录</button>
+  <select id="language-select" class="btn" aria-label="Select language">
+  <option value="auto">自动识别语言</option>
+  <option value="zh-CN">简体中文</option>
+  <option value="zh-TW">繁體中文</option>
+  <option value="en">English</option>
+  <option value="fr">Français</option>
+  <option value="ja">日本語</option>
+  <option value="ko">한국어</option>
+  <option value="es">Español</option>
+  <option value="de">Deutsch</option>
+  <option value="ru">Русский</option>
+  <option value="pt">Português</option>
+</select>
   <button class="btn hidden" id="logout">退出</button>
 </div>
   </header>
@@ -334,7 +347,7 @@ let selected = null, currentUser = null, records = [], selectedFiles = [];
   function publicPhotoUrl(path){
     return db.storage.from(PUBLIC_BUCKET).getPublicUrl(path).data.publicUrl;
   }
-  async function loadRecords(){
+    async function loadRecordsImpl(){
     if(!currentUser){$('records').innerHTML='<div class="empty">登录后，这里会出现你的旅行记录。</div>';records=[];updateStats();clearRecordMarkers();return;}
     setStatus('save-status','正在同步旅行记录…');
     const {data,error}=await db.from('travel_records').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
@@ -361,17 +374,53 @@ visibility.addEventListener('click',()=>setRecordPublic(r,!r.is_public));
 main.appendChild(title);
       if(r.diary){const diary=document.createElement('div');diary.className='record-diary';diary.textContent=r.diary;main.appendChild(diary);}
       card.appendChild(main);
-      if(Array.isArray(r.photos)&&r.photos.length){
-        const strip=document.createElement('div');strip.className='photos';card.appendChild(strip);
-        for(const p of r.photos){
-          try{const url=await signedPhoto(p.path);const img=document.createElement('img');img.src=url;img.alt='旅行照片';strip.appendChild(img);}catch(e){}
-        }
+            if(Array.isArray(r.photos)&&r.photos.length){
+        const strip=document.createElement('div');
+        strip.className='photos';
+        card.appendChild(strip);
+
+        const photoNodes = await Promise.all(r.photos.map(async p => {
+          try {
+            const img = document.createElement('img');
+            img.alt = '旅行照片';
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.src = await signedPhoto(p.path);
+
+            img.addEventListener('error', async () => {
+              if(img.dataset.retried === '1') return;
+              img.dataset.retried = '1';
+              try {
+                img.src = await signedPhoto(p.path);
+              } catch(e) {
+                img.alt = '照片暂时无法加载';
+              }
+            }, {once:true});
+
+            return img;
+          } catch(e) {
+            return null;
+          }
+        }));
+
+        photoNodes.filter(Boolean).forEach(img => strip.appendChild(img));
       }
       $('records').appendChild(card);
     }
     updateStats();setStatus('save-status','旅行记录已同步。');
   }
-    async function loadCommunity(){
+    let recordsLoadPromise = null;
+
+  function loadRecords(){
+    if(recordsLoadPromise) return recordsLoadPromise;
+
+    recordsLoadPromise = loadRecordsImpl().finally(() => {
+      recordsLoadPromise = null;
+    });
+
+    return recordsLoadPromise;
+  }
+        async function loadCommunityImpl(){
     const container = $('community-records');
     container.innerHTML = '<div class="empty">正在加载公开旅行日志……</div>';
 
@@ -385,12 +434,16 @@ main.appendChild(title);
 
       if(error)throw error;
 
-      if(!posts || !posts.length){
+            const uniquePosts = [
+        ...new Map((posts || []).map(post => [String(post.id), post])).values()
+      ];
+
+      if(!uniquePosts.length){
         container.innerHTML = '<div class="empty">这里还没有公开旅行日志，等第一位旅人来分享吧 ✦</div>';
         return;
       }
 
-      const userIds = [...new Set(posts.map(p=>p.user_id).filter(Boolean))];
+      const userIds = [...new Set(uniquePosts.map(p=>p.user_id).filter(Boolean))];
       let profiles = [];
 
       if(userIds.length){
@@ -409,7 +462,7 @@ main.appendChild(title);
 
       container.innerHTML = '';
 
-      for(const post of posts){
+      for(const post of uniquePosts){
         const card = document.createElement('article');
         card.className = 'record';
 
@@ -465,7 +518,17 @@ main.appendChild(title);
         escapeHtml(error.message || '请稍后重试') + '</div>';
     }
   }
+  let communityLoadPromise = null;
 
+  function loadCommunity(){
+    if(communityLoadPromise) return communityLoadPromise;
+
+    communityLoadPromise = loadCommunityImpl().finally(() => {
+      communityLoadPromise = null;
+    });
+
+    return communityLoadPromise;
+  }
   $('community-refresh').addEventListener('click',loadCommunity);
     async function setRecordPublic(r,makePublic){
     if(!currentUser)return;
@@ -663,11 +726,22 @@ setStatus('save-status','保存成功！');
   };
   $('logout').onclick=async()=>{await db.auth.signOut();};
   $('refresh').onclick=loadRecords;
-    db.auth.onAuthStateChange((_event,session)=>{
-    currentUser=session?.user||null;
-    $('user-label').textContent=currentUser?currentUser.email:'';
+      let activeUserId = null;
+
+  db.auth.onAuthStateChange((event,session)=>{
+    const nextUser = session?.user || null;
+    const nextUserId = nextUser?.id || null;
+
+    currentUser = nextUser;
+
+    $('user-label').textContent = currentUser ? currentUser.email : '';
     $('auth-open').classList.toggle('hidden',!!currentUser);
     $('logout').classList.toggle('hidden',!currentUser);
+
+    if(nextUserId === activeUserId) return;
+
+    activeUserId = nextUserId;
+
     if(currentUser){
       loadRecords();
       loadNickname();
@@ -694,5 +768,272 @@ setStatus('save-status','保存成功！');
   });
 })();
 </script>
+
+<script>
+(() => {
+  const languages = {
+    "zh-CN": {},
+    "zh-TW": {
+      "登录":"登入",
+      "退出":"登出",
+      "搜索":"搜尋",
+      "我的世界地图":"我的世界地圖",
+      "收藏一个新地点":"收藏一個新地點",
+      "旅行记录":"旅行紀錄",
+      "星屑社区":"星屑社群",
+      "保存这段旅行":"儲存這段旅程",
+      "地点名称 *":"地點名稱 *",
+      "国家 / 地区":"國家 / 地區",
+      "到访日期":"到訪日期",
+      "地图坐标":"地圖座標",
+      "旅行日记":"旅行日記",
+      "刷新":"重新整理",
+      "稍后再说":"稍後再說"
+    },
+    "en": {
+      "登录":"Log in",
+      "退出":"Log out",
+      "搜索":"Search",
+      "搜索城市、国家或地点…":"Search cities, countries or places…",
+      "我的世界地图":"My World Map",
+      "收藏一个新地点":"Save a New Place",
+      "记录地点、日期、照片和当时的心情。":"Record places, dates, photos and memories.",
+      "地点名称 *":"Place Name *",
+      "国家 / 地区":"Country / Region",
+      "到访日期":"Visit Date",
+      "地图坐标":"Map Coordinates",
+      "旅行日记":"Travel Journal",
+      "写下那一天发生的事……":"Write about what happened that day…",
+      "将这篇旅行日志公开到星屑社区":"Share this travel record with the community",
+      "照片（可多选）":"Photos (multiple allowed)",
+      "从手机相册选择照片":"Choose photos from your device",
+      "保存这段旅行":"Save This Journey",
+      "旅行记录":"My Travel Records",
+      "你的私人旅行档案":"Your private travel archive",
+      "刷新":"Refresh",
+      "星屑社区":"Stardust Community",
+      "看看世界各地旅人分享的故事":"Discover journeys shared by travelers around the world",
+      "刷新社区":"Refresh Community",
+      "已收藏地点":"Places Saved",
+      "张旅行照片":"Travel Photos",
+      "稍后再说":"Maybe Later",
+      "欢迎来到星屑地图":"Welcome to Stardust Atlas",
+      "邮箱地址":"Email Address",
+      "密码（至少 6 位）":"Password (at least 6 characters)",
+      "收藏地点":"Save a Place",
+      "A little map of everywhere":"A little map of everywhere",
+      "把走过的世界，收藏起来。":"Keep a record of the world you've explored.",
+      "每一个地点，都是一颗属于你的星星。":"Every place is a star of your own."
+    },
+    "fr": {
+      "登录":"Connexion",
+      "退出":"Déconnexion",
+      "搜索":"Rechercher",
+      "我的世界地图":"Ma carte du monde",
+      "收藏一个新地点":"Ajouter un lieu",
+      "地点名称 *":"Nom du lieu *",
+      "国家 / 地区":"Pays / Région",
+      "到访日期":"Date de visite",
+      "地图坐标":"Coordonnées",
+      "旅行日记":"Journal de voyage",
+      "旅行记录":"Mes voyages",
+      "星屑社区":"Communauté Stardust",
+      "保存这段旅行":"Enregistrer ce voyage",
+      "刷新":"Actualiser",
+      "刷新社区":"Actualiser la communauté",
+      "稍后再说":"Plus tard",
+      "邮箱地址":"Adresse e-mail",
+      "把走过的世界，收藏起来。":"Gardez une trace du monde que vous explorez.",
+      "每一个地点，都是一颗属于你的星星。":"Chaque lieu est une étoile qui vous appartient."
+    },
+    "ja": {
+      "登录":"ログイン",
+      "退出":"ログアウト",
+      "搜索":"検索",
+      "我的世界地图":"わたしの世界地図",
+      "收藏一个新地点":"新しい場所を保存",
+      "地点名称 *":"場所の名前 *",
+      "国家 / 地区":"国 / 地域",
+      "到访日期":"訪問日",
+      "地图坐标":"地図座標",
+      "旅行日记":"旅行日記",
+      "旅行记录":"旅行記録",
+      "星屑社区":"星屑コミュニティ",
+      "保存这段旅行":"旅を保存",
+      "刷新":"更新",
+      "刷新社区":"コミュニティを更新",
+      "稍后再说":"あとで",
+      "邮箱地址":"メールアドレス"
+    },
+    "ko": {
+      "登录":"로그인",
+      "退出":"로그아웃",
+      "搜索":"검색",
+      "我的世界地图":"나의 세계 지도",
+      "收藏一个新地点":"새 장소 저장",
+      "地点名称 *":"장소 이름 *",
+      "国家 / 地区":"국가 / 지역",
+      "到访日期":"방문 날짜",
+      "地图坐标":"지도 좌표",
+      "旅行日记":"여행 일기",
+      "旅行记录":"여행 기록",
+      "星屑社区":"스타더스트 커뮤니티",
+      "保存这段旅行":"여행 저장",
+      "刷新":"새로고침",
+      "刷新社区":"커뮤니티 새로고침",
+      "稍后再说":"나중에"
+    },
+    "es": {
+      "登录":"Iniciar sesión",
+      "退出":"Cerrar sesión",
+      "搜索":"Buscar",
+      "我的世界地图":"Mi mapa del mundo",
+      "收藏一个新地点":"Guardar un lugar",
+      "地点名称 *":"Nombre del lugar *",
+      "国家 / 地区":"País / Región",
+      "到访日期":"Fecha de visita",
+      "地图坐标":"Coordenadas",
+      "旅行日记":"Diario de viaje",
+      "旅行记录":"Mis viajes",
+      "星屑社区":"Comunidad Stardust",
+      "保存这段旅行":"Guardar este viaje",
+      "刷新":"Actualizar",
+      "刷新社区":"Actualizar comunidad",
+      "稍后再说":"Más tarde"
+    },
+    "de": {
+      "登录":"Anmelden",
+      "退出":"Abmelden",
+      "搜索":"Suchen",
+      "我的世界地图":"Meine Weltkarte",
+      "收藏一个新地点":"Neuen Ort speichern",
+      "地点名称 *":"Ortsname *",
+      "国家 / 地区":"Land / Region",
+      "到访日期":"Besuchsdatum",
+      "地图坐标":"Koordinaten",
+      "旅行日记":"Reisetagebuch",
+      "旅行记录":"Meine Reisen",
+      "星屑社区":"Stardust-Community",
+      "保存这段旅行":"Reise speichern",
+      "刷新":"Aktualisieren",
+      "刷新社区":"Community aktualisieren",
+      "稍后再说":"Später"
+    },
+    "ru": {
+      "登录":"Войти",
+      "退出":"Выйти",
+      "搜索":"Поиск",
+      "我的世界地图":"Моя карта мира",
+      "收藏一个新地点":"Сохранить новое место",
+      "地点名称 *":"Название места *",
+      "国家 / 地区":"Страна / Регион",
+      "到访日期":"Дата посещения",
+      "地图坐标":"Координаты",
+      "旅行日记":"Дневник путешествий",
+      "旅行记录":"Мои путешествия",
+      "星屑社区":"Сообщество Stardust",
+      "保存这段旅行":"Сохранить путешествие",
+      "刷新":"Обновить",
+      "刷新社区":"Обновить сообщество",
+      "稍后再说":"Позже"
+    },
+    "pt": {
+      "登录":"Entrar",
+      "退出":"Sair",
+      "搜索":"Pesquisar",
+      "我的世界地图":"Meu mapa-múndi",
+      "收藏一个新地点":"Salvar um novo lugar",
+      "地点名称 *":"Nome do lugar *",
+      "国家 / 地区":"País / Região",
+      "到访日期":"Data da visita",
+      "地图坐标":"Coordenadas",
+      "旅行日记":"Diário de viagem",
+      "旅行记录":"Minhas viagens",
+      "星屑社区":"Comunidade Stardust",
+      "保存这段旅行":"Salvar esta viagem",
+      "刷新":"Atualizar",
+      "刷新社区":"Atualizar comunidade",
+      "稍后再说":"Mais tarde"
+    }
+  };
+
+  const select = document.getElementById("language-select");
+  if (!select) return;
+
+  const supported = Object.keys(languages);
+
+  function detectLanguage() {
+    const browser = navigator.languages || [navigator.language || "en"];
+    for (const lang of browser) {
+      const exact = lang.toLowerCase();
+      if (exact.startsWith("zh-tw") || exact.startsWith("zh-hk")) return "zh-TW";
+      const match = supported.find(code => exact === code.toLowerCase() || exact.startsWith(code.toLowerCase() + "-"));
+      if (match) return match;
+    }
+    return "en";
+  }
+
+  let current = localStorage.getItem("stardust-language") || "auto";
+
+  function translate(root = document) {
+    const dictionary = languages[current] || {};
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    nodes.forEach(node => {
+      const original = node.nodeValue.trim();
+      if (!original || !dictionary[original]) return;
+      node.nodeValue = node.nodeValue.replace(original, dictionary[original]);
+    });
+
+    root.querySelectorAll?.("input[placeholder],textarea[placeholder]").forEach(el => {
+      const value = el.getAttribute("placeholder");
+      if (dictionary[value]) el.setAttribute("placeholder", dictionary[value]);
+    });
+
+    root.querySelectorAll?.("button").forEach(el => {
+      const value = el.getAttribute("aria-label");
+      if (value && dictionary[value]) el.setAttribute("aria-label", dictionary[value]);
+    });
+  }
+
+  function applyLanguage() {
+    if (current === "auto") {
+      current = detectLanguage();
+    }
+    document.documentElement.lang = current;
+    translate();
+    select.value = localStorage.getItem("stardust-language") || "auto";
+  }
+
+  select.addEventListener("change", () => {
+    const choice = select.value;
+    localStorage.setItem("stardust-language", choice);
+    current = choice === "auto" ? detectLanguage() : choice;
+    document.documentElement.lang = current;
+    location.reload();
+  });
+
+  const observer = new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach(node => {
+        if (node.nodeType === Node.ELEMENT_NODE) translate(node);
+        else if (node.nodeType === Node.TEXT_NODE) {
+          const dictionary = languages[current] || {};
+          const original = node.nodeValue.trim();
+          if (dictionary[original]) {
+            node.nodeValue = node.nodeValue.replace(original, dictionary[original]);
+          }
+        }
+      });
+    }
+  });
+
+  applyLanguage();
+  observer.observe(document.body, {childList:true,subtree:true});
+})();
+</script>
+
 </body>
 </html>
