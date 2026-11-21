@@ -74,16 +74,14 @@ button,input,textarea{font:inherit}button{cursor:pointer}.shell{max-width:1180px
 
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.mjs';
 (() => {
+  const $ = id => document.getElementById(id);
   // Supabase 项目连接信息
   const SUPABASE_URL = "https://cavblmzcnibewntykvlc.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_ybk8wnCdlP3ZKcx4JIQE8A_eZSpRUvY";
   const BUCKET = "travel-photos";
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  scrollWheelZoom: false,
-  zoomSnap: 1,
-  zoomDelta: 1,
-  preferCanvas: true
+
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://tiles.openfreemap.org/styles/liberty',
